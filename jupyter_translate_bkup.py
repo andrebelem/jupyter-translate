@@ -1,14 +1,11 @@
 """
 History:
 - 08 Aug 2024: Introduced argparse for handling command-line arguments, including options for specifying input (--source) and output (--target) languages, as well as the file path.
-- 09 Aug 2024: Migrated from googletrans to deep-translator for enhanced translation stability and compatibility.
-- 09 Aug 2024: Implemented error handling for missing required parameters (--source and --target).
-- 12 Aug 2024: Set the default --source language to 'en' and introduced retry attempts with a delay (default 15 seconds) to prevent API rate limits with deep-translator.
-- 12 Aug 2024: Added support for selecting different translators using --translator, with googletrans as the default.
-- 20 Aug 2024: Corrected handling of horizontal lines '---' and empty "NONE" tags.
-- 20 Aug 2024: Enhanced the program to preserve active links in markdown, as well as embedded code, LaTeX equations, and LaTeX code blocks.
+- 09 Aug 2024: Transitioned from googletrans to deep-translator for improved translation stability and compatibility.
+- 09 Aug 2024: Added error handling for missing required parameters (--source and --target).
+- 12 Aug 2024: modified version to have default --source as en, and introduce "attempts" with sleep (default delay is 15 sec), to prevent overflow of the deep-translator API
+- 12 Aug 2024: Added option for different translators using --translator and print the default (googletrans)
 """
-
 import json, os, re, sys
 import argparse
 from deep_translator import (
@@ -49,105 +46,47 @@ def safe_translate(translator, text, retries=3, delay=10):
             sleep(delay)
     raise Exception(f"Fail to translate after {retries} attempts.")
 
-def translate_markdown(text, translator, delay=0):
-    # Handle the case where `text` is None right at the beginning
-    if text is None:
-        return None  # Or you could return an empty string if that suits your needs better
+def translate_markdown(text, translator, delay):
+    # Regex expressions
+    MD_CODE_REGEX = r'```[a-z]*\n[\s\S]*?\n```'
+    CODE_REPLACEMENT_KW = r'xx_markdown_code_xx'
+    
+    MD_LINK_REGEX = r'\[[^)]+\)'
+    LINK_REPLACEMENT_KW = 'xx_markdown_link_xx'
 
-    # Define necessary constants and regex expressions
+    # Markdown tags
     END_LINE = '\n'
     IMG_PREFIX = '!['
-    HEADERS = ['### ', '###', '## ', '##', '# ', '#']  # Should be processed in this order (bigger to smaller)
-    
-    MD_CODE_REGEX = r'```[a-z]*\n[\s\S]*?\n```'  # Triple backticks code blocks
-    INDENTED_CODE_REGEX = r'^(?!\s*[-*]\s|\s*\d+\.\s|```).*[ ]{4,}.*'  # Indented code blocks (excluding lists, tables, and triple backticks)
-    INLINE_LATEX_REGEX = r'\$[^\$]+\$'  # Inline LaTeX between $...$
-    DISPLAY_LATEX_REGEX = r'\$\$[^\$]+\$\$'  # Displayed LaTeX between $$...$$
-    EQUATION_ENV_REGEX = r'\\begin\{equation\}[\s\S]*?\\end\{equation\}'  # LaTeX \begin{equation}...\end{equation}
-    LINK_REGEX = r'\[([^\]]+)\]\(([^)]+)\)'  # Markdown links
-    HTML_TAG_REGEX = r'<(img|video|a)\b[^>]*>'  # Specific HTML tags: img, video, a
-    ANGLE_BRACKET_URL_REGEX = r'<(https?://[^>]+)>'  # URLs enclosed in angle brackets
-    LATEX_COMMAND_REGEX = r'\\[a-zA-Z]+\{[^\}]+\}'  # LaTeX command structure like \xxx{yyy}
-
-    # Replacement keywords
-    CODE_REPLACEMENT_KW = 'xx_markdown_code_xx'
-    LATEX_REPLACEMENT_KW = 'xx_latex_code_xx'
-    LINK_REPLACEMENT_KW = 'xx_markdown_link_xx'
-    HTML_TAG_REPLACEMENT_KW = 'xx_html_tag_xx'
-    ANGLE_BRACKET_URL_REPLACEMENT_KW = 'xx_angle_bracket_url_xx'
-    LATEX_COMMAND_REPLACEMENT_KW = 'xx_latex_command_xx'
-
-    # Check for indented code blocks and issue a warning
-    if re.search(INDENTED_CODE_REGEX, text):
-        print(f"Warning: Detected indented code blocks. Consider verifying the indentation of the code block! [code]:{text}")
+    HEADERS = ['### ', '###', '## ', '##', '# ', '#']  # Should be from this order (bigger to smaller)
 
     # Inner function to replace tags from text from a source list
     def replace_from_list(tag, text, replacement_list):
-        try:
-            if text is None:
-                return None
-            
-            if tag is None or tag == "---":
-                return tag
-            
-            if not isinstance(text, (str, bytes)):
-                raise TypeError(f"Expected string or bytes-like object for 'text', but got {type(text).__name__}")
-    
-            if not isinstance(tag, str):
-                raise TypeError(f"Expected string for 'tag', but got {type(tag).__name__}")
-    
-            list_to_gen = lambda: [(x) for x in replacement_list]
-            replacement_gen = list_to_gen()
-    
-            return re.sub(tag, lambda x: next(iter(replacement_gen)), text)
-        
-        except Exception as e:
-            print(f"An error occurred while processing the text: {text}")
-            raise e
+        list_to_gen = lambda: [(x) for x in replacement_list]
+        replacement_gen = list_to_gen()
+        return re.sub(tag, lambda x: next(iter(replacement_gen)), text)
 
     # Inner function for translation
     def translate(text):
-        if text is None:
-            return ''  # Return an empty string if `text` is None
+        # Get all markdown links
+        md_links = re.findall(MD_LINK_REGEX, text)
 
-        # Get all markdown code blocks, indented code blocks, LaTeX equations, links, HTML tags, URLs in angle brackets, and LaTeX commands
+        # Get all markdown code blocks
         md_codes = re.findall(MD_CODE_REGEX, text)
-        indented_codes = re.findall(INDENTED_CODE_REGEX, text)
-        inline_latex = re.findall(INLINE_LATEX_REGEX, text)
-        display_latex = re.findall(DISPLAY_LATEX_REGEX, text)
-        equation_envs = re.findall(EQUATION_ENV_REGEX, text)
-        links = re.findall(LINK_REGEX, text)
-        html_tags = re.findall(HTML_TAG_REGEX, text)
-        angle_bracket_urls = re.findall(ANGLE_BRACKET_URL_REGEX, text)
-        latex_commands = re.findall(LATEX_COMMAND_REGEX, text)
 
-        # Replace all identified blocks with placeholders
+        # Replace markdown links in text to markdown_link
+        text = re.sub(MD_LINK_REGEX, LINK_REPLACEMENT_KW, text)
+
+        # Replace links in markdown to tag markdown_link
         text = re.sub(MD_CODE_REGEX, CODE_REPLACEMENT_KW, text)
-        text = re.sub(INDENTED_CODE_REGEX, CODE_REPLACEMENT_KW, text)
-        text = re.sub(INLINE_LATEX_REGEX, LATEX_REPLACEMENT_KW, text)
-        text = re.sub(DISPLAY_LATEX_REGEX, LATEX_REPLACEMENT_KW, text)
-        text = re.sub(EQUATION_ENV_REGEX, LATEX_REPLACEMENT_KW, text)
-        text = re.sub(LINK_REGEX, LINK_REPLACEMENT_KW, text)
-        text = re.sub(HTML_TAG_REGEX, HTML_TAG_REPLACEMENT_KW, text)
-        text = re.sub(ANGLE_BRACKET_URL_REGEX, ANGLE_BRACKET_URL_REPLACEMENT_KW, text)
-        text = re.sub(LATEX_COMMAND_REGEX, LATEX_COMMAND_REPLACEMENT_KW, text)
 
-        # Translate the rest of the text
+        # Translate text
         text = safe_translate(translator, text, delay=delay)
 
-        # Handle None case
-        if text is None:
-            text = ''  # If translation fails and returns None, use an empty string
+        # Replace tags to original link tags
+        text = replace_from_list('[Xx]' + LINK_REPLACEMENT_KW[1:], text, md_links)
 
-        print(f"Replacement list: {angle_bracket_urls}")
-              
-        # Replace the placeholders with the original content
-        text = replace_from_list(CODE_REPLACEMENT_KW, text, md_codes + indented_codes)
-        text = replace_from_list(LATEX_REPLACEMENT_KW, text, inline_latex + display_latex + equation_envs)
-        text = replace_from_list(LINK_REPLACEMENT_KW, text, links)
-        text = replace_from_list(HTML_TAG_REPLACEMENT_KW, text, html_tags)
-        text = replace_from_list(ANGLE_BRACKET_URL_REPLACEMENT_KW, text, angle_bracket_urls)
-        text = replace_from_list(LATEX_COMMAND_REPLACEMENT_KW, text, latex_commands)
+        # Replace code tags
+        text = replace_from_list('[Xx]' + CODE_REPLACEMENT_KW[1:], text, md_codes)
 
         return text
 
@@ -193,8 +132,6 @@ def translate_code_comments_and_prints(code, translator, delay):
             translated_lines.append(line)
     return '\n'.join(translated_lines)
 
-
-
 def jupyter_translate(fname, src_language, dest_language, delay, translator_name, rename_source_file=False, print_translation=False):
     """
     Translates a Jupyter Notebook from one language to another.
@@ -217,7 +154,9 @@ def jupyter_translate(fname, src_language, dest_language, delay, translator_name
     code_cells = sum(1 for cell in data_translated['cells'] if cell['cell_type'] == 'code')
     markdown_cells = sum(1 for cell in data_translated['cells'] if cell['cell_type'] == 'markdown')
 
-    print(f"Total cells: {total_cells} Code cells: {code_cells} Markdown cells: {markdown_cells}")
+    print(f"Total cells: {total_cells}")
+    print(f"Code cells: {code_cells}")
+    print(f"Markdown cells: {markdown_cells}")
 
     skip_row = False
     for i, cell in enumerate(tqdm(data_translated['cells'], desc="Translating cells", unit="cell")):

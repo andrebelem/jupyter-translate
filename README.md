@@ -79,6 +79,25 @@ Use this option if you want to print the translations directly to the console as
 ```
 jupyter_translate my_notebook.ipynb --target es --print
 ```
+## ⚠️ Warning: Proper Handling of Embedded Code and Equations
+When including embedded code or mathematical equations in your markdown files, please ensure that the code is enclosed within triple backticks (```) and that equations are properly enclosed within $...$, $$...$$, or `\begin{equation}`...`\end{equation}`. This is essential to prevent the program from mistakenly translating the code or equations or misinterpreting them as regular text
+
+Example of Proper Embedded Code and Equations:
+```python
+def example_function():
+    """This is a docstring."""
+    return "Hello, World!"
+```
+Inline Equation: $e^{i\pi} + 1 = 0$
+
+Displayed Equation:
+\begin{equation}
+e^x = \sum_{i=0}^\infty \frac{1}{i!}x^i
+\end{equation}
+
+**Why This is Important:**
+
+If embedded code or equations are not properly enclosed, the program may inadvertently translate or alter them, changing their functionality, meaning, or appearance. This can lead to unexpected results, especially when the embedded code is meant for demonstration purposes rather than execution, or when the mathematical accuracy of equations is critical.
 
 ## Implementation notes:
 
